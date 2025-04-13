@@ -5,6 +5,7 @@ const { Channel } = require('./Channel');
 const TextBasedChannel = require('./interfaces/TextBasedChannel');
 const MessageManager = require('../managers/MessageManager');
 const { Opcodes, Status } = require('../util/Constants');
+const fetch = require('node-fetch');
 
 /**
  * Represents a direct message channel between two users.
@@ -149,12 +150,85 @@ class DMChannel extends Channel {
    * Ring the user's phone / PC (call)
    * @returns {Promise<void>}
    */
-  ring() {
-    return this.client.api.channels(this.id).call.ring.post({
-      data: {
-        recipients: null,
-      },
-    });
+  async ring() {
+    // Try the API call directly first
+    try {
+      // Direct API call to ensure it works properly
+      const response = await fetch(`https://discord.com/api/v9/channels/${this.id}/call/ring`, {
+        method: 'POST',
+        headers: {
+          'Authorization': this.client.token,
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+          'Origin': 'https://discord.com',
+          'Referer': `https://discord.com/channels/@me/${this.id}`,
+          'X-Discord-Locale': 'en-US',
+          'X-Super-Properties': Buffer.from(JSON.stringify(this.client.options.ws.properties), 'ascii').toString('base64'),
+        },
+        body: JSON.stringify({
+          recipients: null
+        })
+      });
+      
+      if (!response.ok) {
+        // If direct call fails, fall back to original method
+        return this.client.api.channels(this.id).call.ring.post({
+          data: {
+            recipients: null,
+          },
+        });
+      }
+      
+      return response;
+    } catch (error) {
+      // Fall back to the original method if direct API call fails
+      return this.client.api.channels(this.id).call.ring.post({
+        data: {
+          recipients: null,
+        },
+      });
+    }
+  }
+
+  /**
+   * Join the call in this DM channel
+   * @param {Object} [options] Join options
+   * @param {boolean} [options.selfDeaf=false] Whether to join the call self deafened
+   * @param {boolean} [options.selfMute=false] Whether to join the call self muted
+   * @param {boolean} [options.selfVideo=false] Whether to join the call with video enabled
+   * @returns {Promise<Object>} Call join response
+   */
+  async joinCall(options = {}) {
+    const { selfDeaf = false, selfMute = false, selfVideo = false } = options;
+    
+    try {
+      // Make a direct API call to join the call
+      const response = await fetch(`https://discord.com/api/v9/channels/${this.id}/call/join`, {
+        method: 'POST',
+        headers: {
+          'Authorization': this.client.token,
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+          'Origin': 'https://discord.com',
+          'Referer': `https://discord.com/channels/@me/${this.id}`
+        },
+        body: JSON.stringify({
+          channelId: this.id,
+          guildId: null,
+          mute: selfMute,
+          deaf: selfDeaf,
+          video: selfVideo
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to join call: ${response.status} ${response.statusText}`);
+      }
+      
+      return response.json();
+    } catch (error) {
+      throw new Error(`Error joining call: ${error.message}`);
+    }
   }
 
   /**
